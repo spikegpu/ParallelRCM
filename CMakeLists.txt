@@ -9,6 +9,7 @@ MESSAGE(STATUS "Cuda version: ${CUDA_VERSION}")
 
 SET(RCM_HEADERS
 	rcm/common.h
+	rcm/rcm.h
 	rcm/rcm_um.h
 	rcm/exception.h
 	rcm/timer.h
@@ -23,8 +24,8 @@ SET(MMIO_FILES
   mm_io/mm_io.c
   )
 
-SOURCE_GROUP("Headers" FILES ${MC64_HEADERS})
-SOURCE_GROUP("CUDA Headers" FILES ${MC64_CUHEADERS})
+SOURCE_GROUP("Headers" FILES ${RCM_HEADERS})
+SOURCE_GROUP("CUDA Headers" FILES ${RCM_CUHEADERS})
 SOURCE_GROUP("MM_IO" FILES ${MMIO_FILES})
 
 INCLUDE_DIRECTORIES(
@@ -32,6 +33,7 @@ INCLUDE_DIRECTORIES(
     )
 
 IF(NOT (${CUDA_VERSION} VERSION_LESS "6.0"))
-  cuda_add_executable(driver_um driver_um.cu ${MC64_HEADERS} ${MC64_CUHEADERS} ${MMIO_FILES})
-  cuda_add_executable(testing testing.cu ${MC64_HEADERS} ${MC64_CUHEADERS} ${MMIO_FILES})
+  cuda_add_executable(driver_um driver_um.cu ${RCM_HEADERS} ${RCM_CUHEADERS} ${MMIO_FILES})
+  cuda_add_executable(testing testing.cu ${RCM_HEADERS} ${RCM_CUHEADERS} ${MMIO_FILES})
+  cuda_add_executable(testing_um testing_um.cu ${RCM_HEADERS} ${RCM_CUHEADERS} ${MMIO_FILES})
 ENDIF()

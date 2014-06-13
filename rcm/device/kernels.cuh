@@ -27,7 +27,8 @@ __global__ void achieveLevels(int        N,
 							  bool*      frontier,
 							  int*       visited,
 							  int*       updated_by,
-							  int*       levels)
+							  int*       levels,
+							  bool*      has_frontier)
 {
 	int bid = blockIdx.x + blockIdx.y * gridDim.x;
 
@@ -48,6 +49,8 @@ __global__ void achieveLevels(int        N,
 		frontier[column] = true;
 		updated_by[column] = bid + 1;
 		levels[column]  = cur_cost + 1;
+		if (!(*has_frontier))
+			*has_frontier = true;
 	}
 }
 

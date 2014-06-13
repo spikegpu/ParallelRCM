@@ -11,10 +11,8 @@ extern "C" {
 #include <rcm/common.h>
 #include <rcm/timer.h>
 
-#include <thrust/host_vector.h>
-
-typedef typename thrust::host_vector<int>     IntVector;
-typedef typename thrust::host_vector<double>  DoubleVector;
+typedef typename rcm::ManagedVector<int>     IntVector;
+typedef typename rcm::ManagedVector<double>  DoubleVector;
 
 enum TestColor {
 	COLOR_NO = 0,
@@ -87,7 +85,7 @@ int main(int argc, char **argv)
   rcm::coo2csr(M, N, nnz, row_i, col_j, vals, row_offsets, column_indices, values);
 
   // Run the RCM algorithm
-  rcm::RCM algo(row_offsets, column_indices, values);
+  rcm::RCM_UM algo(row_offsets, column_indices, values);
   OutputItem outputItem(std::cout);
 
   std::cout << "<tr valing=top>" << std::endl;
