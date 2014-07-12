@@ -44,10 +44,11 @@ __global__ void achieveLevels(int        N,
 
 	for (int tid = start_idx + threadIdx.x; tid < end_idx; tid += blockDim.x) {
 		int column = column_indices[tid];
-		if (visited[column]) continue;
-		visited[column] = true;
+		int ori_visited = atomicCAS(visited + column, 0, 1);
+		if (ori_visited) continue;
+		// visited[column] = true;
 		frontier[column] = true;
-		updated_by[column] = bid + 1;
+		updated_by[column] = bid;
 		levels[column]  = cur_cost + 1;
 		if (!(*has_frontier))
 			*has_frontier = true;

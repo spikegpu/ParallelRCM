@@ -90,7 +90,7 @@ public:
 		inline
 			__host__ __device__
 			bool operator() (IntTuple a, IntTuple b) const
-			{
+			{ 
 				int a_level = thrust::get<0>(a), b_level = thrust::get<0>(b);
 				if (a_level != b_level) return a_level < b_level;
 				int a_updated_by = thrust::get<1>(a), b_updated_by = thrust::get<1>(b);
