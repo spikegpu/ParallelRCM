@@ -90,12 +90,25 @@ public:
 		inline
 			__host__ __device__
 			bool operator() (IntTuple a, IntTuple b) const
-			{
+			{ 
 				int a_level = thrust::get<0>(a), b_level = thrust::get<0>(b);
 				if (a_level != b_level) return a_level < b_level;
 				int a_updated_by = thrust::get<1>(a), b_updated_by = thrust::get<1>(b);
 				if (a_updated_by != b_updated_by) return a_updated_by < b_updated_by;
 				return thrust::get<2>(a) < thrust::get<2>(b);
+			}
+	};
+
+
+	struct EqualTo: public thrust::unary_function<int, int>
+	{
+		int m_max;
+		EqualTo(int m): m_max(m) {}
+
+		inline 
+			__host__ __device__
+			bool operator() (const int &a) {
+				return a == m_max;
 			}
 	};
 
@@ -183,15 +196,19 @@ RCM::execute()
 	BoolVectorH tried(m_n, false);
 	tried[0] = true;
 
-	int last_tried = 0;
-
 	m_perm.resize(m_n);
 	thrust::sequence(m_perm.begin(), m_perm.end());
+
+	IntVectorH levels(m_n);
+	IntVectorH ori_degrees(m_n);
+
+	thrust::transform(m_row_offsets.begin() + 1, m_row_offsets.end(), m_row_offsets.begin(), ori_degrees.begin(), thrust::minus<int>());
 
 	for (int trial_num = 0; trial_num < MAX_NUM_TRIAL ; trial_num++)
 	{
 		std::queue<int> q;
 		std::priority_queue<NodeType, std::vector<NodeType>, CompareValue > pq;
+		int max_level = 0;
 
 		int tmp_node;
 		BoolVectorH pushed(m_n, false);
@@ -200,28 +217,35 @@ RCM::execute()
 		int j = 0, last = 0;
 
 		if (trial_num > 0) {
+			IntIterator max_level_iter = thrust::max_element(levels.begin(), levels.end());
+			int max_count = thrust::count(levels.begin(), levels.end(), max_level);
 
-			if (trial_num < MAX_NUM_TRIAL) {
-				tmp_node = rand() % m_n;
+			if (max_count > 1) {
+				IntVectorH max_level_vertices(max_count);
+				IntVectorH max_level_valence(max_count);
 
-				while(tried[tmp_node])
-					tmp_node = rand() % m_n;
-			} else {
-				if (last_tried >= m_n - 1) {
-					fprintf(stderr, "All possible starting points have been tried in RCM\n");
-					break;
-				}
-				for (tmp_node = last_tried+1; tmp_node < m_n; tmp_node++)
-					if (!tried[tmp_node]) {
-						last_tried = tmp_node;
-						break;
-					}
-			}
+				thrust::copy_if(thrust::counting_iterator<int>(0),
+						thrust::counting_iterator<int>(int(m_n)),
+						levels.begin(),
+						max_level_vertices.begin(),
+						EqualTo(max_level));
 
-			pushed[tmp_node] = true;
-			tried[tmp_node] = true;
-			q.push(tmp_node);
-		}
+				thrust::gather(thrust::counting_iterator<int>(0),
+						thrust::counting_iterator<int>(max_count),
+						ori_degrees.begin(),
+						max_level_valence.begin());
+
+				int min_valence_pos = thrust::min_element(max_level_valence.begin(), max_level_valence.end()) - max_level_valence.begin();
+				tmp_node = max_level_vertices[min_valence_pos];
+			} else
+				tmp_node = max_level_iter - levels.begin();
+		} else
+			tmp_node = 0;
+
+		pushed[tmp_node] = true;
+		tried[tmp_node] = true;
+		q.push(tmp_node);
+		levels[tmp_node] = 0;
 
 		while(left_cnt--) {
 			if(q.empty()) {
@@ -233,6 +257,7 @@ RCM::execute()
 						q.push(i);
 						pushed[i] = true;
 						last = i;
+						levels[i] = (++max_level);
 						break;
 					}
 				}
@@ -254,6 +279,7 @@ RCM::execute()
 				if(!pushed[target_node]) {
 					pushed[target_node] = true;
 					pq.push(thrust::make_tuple(target_node, tmp_row_offsets[target_node + 1] - tmp_row_offsets[target_node]));
+					max_level = levels[target_node] = levels[tmp_node] + 1;
 				}
 			}
 

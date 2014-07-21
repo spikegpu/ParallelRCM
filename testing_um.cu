@@ -55,7 +55,7 @@ class OutputItem
 int main(int argc, char **argv)
 {
   if (argc < 2) {
-    std::cout << "Usage:\n  driver input_file" << std::endl;
+    std::cerr << "Usage:\n  driver input_file" << std::endl;
     return 1;
   }
 
@@ -68,7 +68,7 @@ int main(int argc, char **argv)
 
   int err = mm_read_mtx_crd(argv[1], &M, &N, &nnz, &row_i, &col_j, &vals, &matcode);
   if (err != 0) {
-    std::cout << "error: " << err << std::endl;
+    std::cerr << "error: " << err << std::endl;
     return 1;
   }
 
@@ -108,7 +108,7 @@ int main(int argc, char **argv)
   rcm::CPUTimer cpu_timer;
   try {
 	  cpu_timer.Start();
-    algo.execute();
+	  algo.execute();
 	  cpu_timer.Stop();
   } catch (const rcm::system_error& se) {
 	  outputItem("");

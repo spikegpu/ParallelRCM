@@ -162,5 +162,6 @@ macro(enable_cuda_support)
 		if(CUDA_VERBOSE_PTX)
 				list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
 		endif()
+
 endmacro(enable_cuda_support)
 # Done configuring CUDA options
