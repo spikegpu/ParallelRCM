@@ -208,31 +208,6 @@ RCM_UM::execute()
 		int  *     p_updated_by     = thrust::raw_pointer_cast(&updated_by[0]);
 		int  *     p_levels         = thrust::raw_pointer_cast(&levels[0]);
 
-#if 0
-		for (int l = 0; l < m_n; l ++)
-		{
-			device::alterAchieveLevels<<<1, 512>>>(m_n, p_row_offsets, p_column_indices, p_frontier, p_n_frontier, p_visited, p_updated_by, p_levels, p_has_frontier);
-
-			int sum = thrust::reduce(visited.begin(), visited.end());
-			int max_level = thrust::reduce(levels.begin(), levels.end(), 0, thrust::maximum<int>());
-
-			cudaDeviceSynchronize();
-
-			if (sum >= m_n) break;
-
-			for (int j = last; j < m_n; j++)
-				if (!visited[j]) {
-					visited[j] = 1;
-					frontier[j] = true;
-					levels[j] = max_level + 1;
-					updated_by[j] = -1;
-					last = j;
-					*p_has_frontier = true;
-					tried[j] = true;
-					break;
-				}
-		}
-#else
 		for (int l = 0; l < m_n; l ++)
 		{
 			if (*p_has_frontier)
@@ -263,7 +238,6 @@ RCM_UM::execute()
 			thrust::fill(n_frontier.begin(), n_frontier.end(), false);
 			cudaDeviceSynchronize();
 		}
-#endif
 
 		thrust::copy(degrees.begin(), degrees.end(), tmp_degrees.begin());
 
