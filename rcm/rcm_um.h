@@ -93,8 +93,6 @@ public:
 void
 RCM_UM::execute()
 {
-	BoolVector       frontier(m_n);
-	BoolVector       n_frontier(m_n);
 	IntVector        visited(m_n);
 	BoolVectorH      post_visited(m_n);
 	BoolVector       tried(m_n, false);
@@ -182,8 +180,6 @@ RCM_UM::execute()
 		tried[S] = true;
 
 
-		thrust::fill(frontier.begin(), frontier.end(), false);
-		thrust::fill(n_frontier.begin(), n_frontier.end(), false);
 		thrust::fill(visited.begin(),  visited.end(),  0);
 		thrust::fill(post_visited.begin(),  post_visited.end(),  false);
 		thrust::sequence(tmp_reordering.begin(), tmp_reordering.end());
@@ -191,55 +187,68 @@ RCM_UM::execute()
 		thrust::fill(levels.begin(), levels.end(), 0);
 		cudaDeviceSynchronize();
 
-		frontier[S] = true;
 		visited[S]  = 1;
-		levels[S] = 0;
 		updated_by[S] = -1;
+		tmp_reordering[0] = S;
 
 		int last = 0;
 
-		BoolVector has_frontier(1);
-		bool *     p_has_frontier = thrust::raw_pointer_cast(&has_frontier[0]);
 		const int *p_row_offsets    = thrust::raw_pointer_cast(&tmp_row_offsets[0]);
 		const int *p_column_indices = thrust::raw_pointer_cast(&tmp_column_indices[0]);
-		bool *     p_frontier       = thrust::raw_pointer_cast(&frontier[0]);
-		bool *     p_n_frontier     = thrust::raw_pointer_cast(&n_frontier[0]);
 		int  *     p_visited        = thrust::raw_pointer_cast(&visited[0]);
 		int  *     p_updated_by     = thrust::raw_pointer_cast(&updated_by[0]);
 		int  *     p_levels         = thrust::raw_pointer_cast(&levels[0]);
 
-		for (int l = 0; l < m_n; l ++)
-		{
-			if (*p_has_frontier)
-				*p_has_frontier = false;
-			else {
-				int sum = thrust::reduce(visited.begin(), visited.end());
+		int queue_begin = 0;
+		IntVector queue_end(1, 1);
+		int *p_queue_end = thrust::raw_pointer_cast(&queue_end[0]);
+		const int *p_degrees   = thrust::raw_pointer_cast(&degrees[0]);
+		int *p_n_degrees = thrust::raw_pointer_cast(&tmp_degrees[0]);
+		int *p_reordering= thrust::raw_pointer_cast(&tmp_reordering[0]);
+
+		for (int l = 0; l < m_n; l ++) {
+			int local_queue_end = queue_end[0];
+			if (local_queue_end - queue_begin > 1)
+			{
+				int blockX = local_queue_end - queue_begin, blockY = 1;
+				kernelConfigAdjust(blockX, blockY, MAX_GRID_DIMENSION);
+				dim3 tmp_grids(blockX, blockY);
+				device::alterAchieveLevels<<<tmp_grids, 64>>>(l, p_row_offsets, p_column_indices, p_reordering, queue_begin, local_queue_end, p_queue_end, p_visited, p_levels, p_degrees, p_n_degrees, p_updated_by);
 				cudaDeviceSynchronize();
-
-				if (sum >= m_n) break;
-
-				for (int j = last; j < m_n; j++)
-					if (!visited[j]) {
-						visited[j] = 1;
-						frontier[j] = true;
-						levels[j] = l;
-						updated_by[j] = -1;
-						last = j;
-						*p_has_frontier = true;
-						tried[j] = true;
-						break;
+				queue_begin = local_queue_end;
+			} else {
+				if (local_queue_end == queue_begin) {
+					if (queue_begin >= m_n) break;
+					for (int j = last; j < m_n; j++)
+						if (!visited[j]) {
+							visited[j] = 1;
+							updated_by[local_queue_end]     = -1;
+							tmp_reordering[local_queue_end] = j;
+							last = j;
+							tried[j] = true;
+							queue_end[0]++;
+							l --;
+							break;
+						}
+				} else {
+					levels[queue_begin] = l;
+					int row = tmp_reordering[queue_begin];
+					int start_idx = tmp_row_offsets[row], end_idx = tmp_row_offsets[row + 1];
+					for (int j = start_idx; j < end_idx; j++) {
+						int column = tmp_column_indices[j];
+						if (!visited[column]) {
+							visited[column] = true;
+							tmp_reordering[local_queue_end] = column;
+							updated_by[local_queue_end]     = row;
+							tmp_degrees[local_queue_end]    = degrees[column];
+							local_queue_end ++;
+						}
 					}
-
-				continue;
+					queue_begin = queue_end[0];
+					queue_end[0] = local_queue_end;
+				}
 			}
-
-			device::achieveLevels<<<grids, 64>>>(m_n, p_row_offsets, p_column_indices, p_frontier, p_n_frontier, p_visited, p_updated_by, p_levels, p_has_frontier);
-			thrust::copy(n_frontier.begin(), n_frontier.end(), frontier.begin());
-			thrust::fill(n_frontier.begin(), n_frontier.end(), false);
-			cudaDeviceSynchronize();
 		}
-
-		thrust::copy(degrees.begin(), degrees.end(), tmp_degrees.begin());
 
 		thrust::sort(thrust::make_zip_iterator(thrust::make_tuple(levels.begin(), updated_by.begin(), tmp_degrees.begin(), tmp_reordering.begin() )),
 				     thrust::make_zip_iterator(thrust::make_tuple(levels.end(), updated_by.end(), tmp_degrees.end(), tmp_reordering.end())),

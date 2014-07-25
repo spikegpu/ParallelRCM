@@ -26,6 +26,20 @@ extern "C" {
 
 namespace rcm {
 
+	struct empty_row_functor
+	{
+		typedef bool result_type;
+		typedef typename thrust::tuple<int, int>       IntTuple;
+			__host__ __device__
+			bool operator()(const IntTuple& t) const
+			{
+				const int a = thrust::get<0>(t);
+				const int b = thrust::get<1>(t);
+
+				return a != b;
+			}
+	};
+
 class RCM_base
 {
 protected:
@@ -37,14 +51,18 @@ protected:
 
 	typedef typename thrust::tuple<int, int, int, int>       IntTuple;
 
+
 	template <typename IVector>
 	static void offsets_to_indices(const IVector& offsets, IVector& indices)
 	{
 		// convert compressed row offsets into uncompressed row indices
 		thrust::fill(indices.begin(), indices.end(), 0);
-		thrust::scatter( thrust::counting_iterator<int>(0),
+		thrust::scatter_if( thrust::counting_iterator<int>(0),
 				thrust::counting_iterator<int>(offsets.size()-1),
 				offsets.begin(),
+                    	thrust::make_transform_iterator(
+                                thrust::make_zip_iterator( thrust::make_tuple( offsets.begin(), offsets.begin()+1 ) ),
+                                empty_row_functor()),
 				indices.begin());
 		thrust::inclusive_scan(indices.begin(), indices.end(), indices.begin(), thrust::maximum<int>());
 	}
@@ -96,6 +114,18 @@ public:
 				int a_updated_by = thrust::get<1>(a), b_updated_by = thrust::get<1>(b);
 				if (a_updated_by != b_updated_by) return a_updated_by < b_updated_by;
 				return thrust::get<2>(a) < thrust::get<2>(b);
+			}
+	};
+
+	struct TripleCompare
+	{
+		inline
+			__host__ __device__
+			bool operator() (IntTuple a, IntTuple b) const
+			{ 
+				int a_level = thrust::get<0>(a), b_level = thrust::get<0>(b);
+				if (a_level != b_level) return a_level < b_level;
+				return thrust::get<1>(a) < thrust::get<1>(b);
 			}
 	};
 

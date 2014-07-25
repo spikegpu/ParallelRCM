@@ -62,9 +62,9 @@ int main(int argc, char **argv)
   // Read matrix from file (COO format)
   MM_typecode matcode;
   int M, N, nnz;
-  int* row_i;
-  int* col_j;
-  double* vals;
+  int* row_i = NULL;
+  int* col_j = NULL;
+  double* vals = NULL;
 
   int err = mm_read_mtx_crd(argv[1], &M, &N, &nnz, &row_i, &col_j, &vals, &matcode);
   if (err != 0) {

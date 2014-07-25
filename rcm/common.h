@@ -165,14 +165,26 @@ void coo2csr(const int    n_row,
   Bp[n_row] = nnz; 
 
   //write Aj,Ax into Bj,Bx
-  for(int i = 0; i < nnz; i++) {
-    int row  = Ai[i];
-    int dest = Bp[row];
+  if (Ax != NULL) {
+	  for(int i = 0; i < nnz; i++) {
+		  int row  = Ai[i];
+		  int dest = Bp[row];
 
-    Bj[dest] = Aj[i];
-    Bx[dest] = Ax[i];
+		  Bj[dest] = Aj[i];
+		  Bx[dest] = Ax[i];
 
-    Bp[row]++;
+		  Bp[row]++;
+	  }
+  } else {
+	  for(int i = 0; i < nnz; i++) {
+		  int row  = Ai[i];
+		  int dest = Bp[row];
+
+		  Bj[dest] = Aj[i];
+		  Bx[dest] = 1.0;
+
+		  Bp[row]++;
+	  }
   }
 
   for(int i = 0, last = 0; i <= n_row; i++) {
