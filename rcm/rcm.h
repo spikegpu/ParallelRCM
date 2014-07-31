@@ -50,6 +50,7 @@ protected:
 	size_t         m_nnz;
 
 	typedef typename thrust::tuple<int, int, int, int>       IntTuple;
+	typedef typename thrust::tuple<int, int, int>            IntTriple;
 
 
 	template <typename IVector>
@@ -121,10 +122,10 @@ public:
 	{
 		inline
 			__host__ __device__
-			bool operator() (IntTuple a, IntTuple b) const
+			bool operator() (IntTriple a, IntTriple b) const
 			{ 
-				int a_level = thrust::get<0>(a), b_level = thrust::get<0>(b);
-				if (a_level != b_level) return a_level < b_level;
+				int a0 = thrust::get<0>(a), b0 = thrust::get<0>(b);
+				if (a0 != b0) return a0 < b0;
 				return thrust::get<1>(a) < thrust::get<1>(b);
 			}
 	};
