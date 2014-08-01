@@ -68,15 +68,17 @@ private:
 public:
   RCM_UM(const IntVector&    row_offsets,
          const IntVector&    column_indices,
-         const DoubleVector& values)
+         const DoubleVector& values,
+		 int                 iteration_count)
   : m_row_offsets(row_offsets),
     m_column_indices(column_indices),
     m_values(values)
   {
     size_t n = row_offsets.size() - 1;
     m_perm.resize(n);
-    m_n   = n;
-    m_nnz = m_values.size();
+    m_n               = n;
+    m_nnz             = m_values.size();
+	m_iteration_count = iteration_count;
   }
 
   ~RCM_UM() {}
@@ -95,7 +97,7 @@ RCM_UM::execute()
 	IntVector        updated_by(m_n);
 	IntVector        levels(m_n);
 
-	const int ITER_COUNT = 5;
+	const int ITER_COUNT = m_iteration_count;
 
 	IntVector        row_indices(m_nnz);
 
@@ -347,7 +349,7 @@ RCM_UM::execute_omp()
 
 	IntVector        levels(m_n);
 
-	const int ITER_COUNT = 5;
+	const int ITER_COUNT = m_iteration_count;
 
 	IntVector        row_indices(m_nnz);
 
@@ -405,7 +407,7 @@ RCM_UM::execute_omp()
 
 				thrust::copy_if(thrust::counting_iterator<int>(0),
 						thrust::counting_iterator<int>(int(m_n)),
-						levels.begin(),
+						ori_levels.begin(),
 						max_level_vertices.begin(),
 						EqualTo(max_level));
 
@@ -416,12 +418,12 @@ RCM_UM::execute_omp()
 				int min_valence_pos = thrust::min_element(max_level_valence.begin(), max_level_valence.end()) - max_level_valence.begin();
 				cudaDeviceSynchronize();
 
-				S = tmp_perm[max_level_vertices[min_valence_pos]];
+				S = max_level_vertices[min_valence_pos];
 			}
 			else
-				S = tmp_perm[m_n - 1];
+				S = tmp_reordering[m_n - 1];
 
-			if (tried[S]) break;
+			while (tried[S]) S = (S + 1) % m_n;
 		}
 
 		tried[S] = true;
@@ -517,7 +519,7 @@ RCM_UM::execute_omp()
 
 		int threadId, numThreads;
 		int * volatile p_write_offsets = thrust::raw_pointer_cast(&h_write_offsets[0]);
-		for (int l = 0; l <= max_level; l++) {
+		for (int l = max_level; l >= 0; l--) {
 			if (special[l])
 				p_write_offsets[l]++;
 		}
@@ -552,7 +554,6 @@ RCM_UM::execute_omp()
 							}
 						}
 					}
-
 				}
 			}
 		}

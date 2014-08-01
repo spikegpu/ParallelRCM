@@ -56,9 +56,16 @@ class OutputItem
 
 int main(int argc, char **argv)
 {
+  int iter_cnt = 5;
   if (argc < 2) {
     std::cerr << "Usage:\n  driver input_file" << std::endl;
     return 1;
+  } 
+
+  if (argc >= 3) {
+	  iter_cnt = atoi(argv[2]);
+	  if (iter_cnt <= 0)
+		  iter_cnt = 5;
   }
 
   // Read matrix from file (COO format)
@@ -87,7 +94,7 @@ int main(int argc, char **argv)
   rcm::coo2csr(M, N, nnz, row_i, col_j, vals, row_offsets, column_indices, values);
 
   // Run the RCM algorithm
-  rcm::RCM algo(row_offsets, column_indices, values);
+  rcm::RCM algo(row_offsets, column_indices, values, iter_cnt);
   OutputItem outputItem(std::cout);
 
   std::cout << "<tr valing=top>" << std::endl;

@@ -59,7 +59,7 @@ int main(int argc, char **argv)
   */
 
   // Run the RCM algorithm
-  rcm::RCM_UM algo(row_offsets, column_indices, values);
+  rcm::RCM_UM algo(row_offsets, column_indices, values, 5);
 
   std::cout << "Run RCM... ";
   try {
