@@ -121,11 +121,19 @@ int main(int argc, char **argv)
 	  outputItem("");
 	  outputItem("");
 	  outputItem("");
+	  outputItem("");
+	  outputItem("");
+	  outputItem("");
+	  outputItem("");
 	  std::cout << "</tr>" << std::endl;
 	  return 1;
   }
   outputItem(algo.getHalfBandwidthOriginal());
+  outputItem(algo.getIterationCount());
   outputItem(algo.getHalfBandwidth());
+  outputItem(algo.getTimePreprocessing());
+  outputItem(algo.getTimeBFS());
+  outputItem(algo.getTimeNodeOrder());
   outputItem(cpu_timer.getElapsed());
   std::cout << "</tr>" << std::endl;
 

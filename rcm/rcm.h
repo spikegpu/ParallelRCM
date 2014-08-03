@@ -45,7 +45,11 @@ class RCM_base
 protected:
 	int            m_half_bandwidth;
 	int            m_half_bandwidth_original;
+	int            m_max_iteration_count;
 	int            m_iteration_count;
+	double         m_time_pre;
+	double         m_time_bfs;
+	double         m_time_node_order;
 
 	size_t         m_n;
 	size_t         m_nnz;
@@ -146,6 +150,10 @@ public:
 
 	int getHalfBandwidth() const         {return m_half_bandwidth;}
 	int getHalfBandwidthOriginal() const {return m_half_bandwidth_original;}
+	int getIterationCount() const        {return m_iteration_count;}
+	double getTimePreprocessing() const  {return m_time_pre;}
+	double getTimeBFS() const            {return m_time_bfs;}
+	double getTimeNodeOrder() const      {return m_time_node_order;}
 
     virtual void execute() = 0;
 };
@@ -197,7 +205,8 @@ public:
     m_perm.resize(n);
     m_n               = n;
     m_nnz             = m_values.size();
-	m_iteration_count = iteration_count;
+	m_max_iteration_count = iteration_count;
+	m_iteration_count = 0;
   }
 
   ~RCM() {}
@@ -225,7 +234,7 @@ RCM::execute()
 	EdgeIterator end   = thrust::make_zip_iterator(thrust::make_tuple(row_indices.end(),   m_column_indices.end()));
 	buildTopology(begin, end, 0, m_n, tmp_row_offsets, tmp_column_indices);
 
-	const int MAX_NUM_TRIAL = m_iteration_count;
+	const int MAX_NUM_TRIAL = m_max_iteration_count;
 
 	BoolVectorH tried(m_n, false);
 	tried[0] = true;
@@ -242,6 +251,7 @@ RCM::execute()
 
 	for (int trial_num = 0; trial_num < MAX_NUM_TRIAL ; trial_num++)
 	{
+		m_iteration_count = trial_num + 1;
 		std::queue<int> q;
 		std::priority_queue<NodeType, std::vector<NodeType>, CompareValue > pq;
 		int max_level = 0;

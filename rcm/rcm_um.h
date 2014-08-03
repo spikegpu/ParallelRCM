@@ -78,7 +78,8 @@ public:
     m_perm.resize(n);
     m_n               = n;
     m_nnz             = m_values.size();
-	m_iteration_count = iteration_count;
+	m_iteration_count = 0;
+	m_max_iteration_count = iteration_count;
   }
 
   ~RCM_UM() {}
@@ -97,7 +98,7 @@ RCM_UM::execute()
 	IntVector        updated_by(m_n);
 	IntVector        levels(m_n);
 
-	const int ITER_COUNT = m_iteration_count;
+	const int ITER_COUNT = m_max_iteration_count;
 
 	IntVector        row_indices(m_nnz);
 
@@ -139,7 +140,7 @@ RCM_UM::execute()
 	int max_level = 0;
 
 	for (int i = 0; i < ITER_COUNT; i++) {
-		
+		m_iteration_count = i + 1;
 		if (i > 0) {
 			int max_count = thrust::count(levels.begin(), levels.end(), max_level);
 
@@ -349,7 +350,7 @@ RCM_UM::execute_omp()
 
 	IntVector        levels(m_n);
 
-	const int ITER_COUNT = m_iteration_count;
+	const int ITER_COUNT = m_max_iteration_count;
 
 	IntVector        row_indices(m_nnz);
 
@@ -360,6 +361,10 @@ RCM_UM::execute_omp()
 	IntVector        ori_degrees(m_n);
 
 	IntVector        ori_levels(m_n);
+
+	CPUTimer         local_timer;
+
+	local_timer.Start();
 
 	offsets_to_indices(m_row_offsets, row_indices);
 
@@ -385,6 +390,8 @@ RCM_UM::execute_omp()
 		thrust::sequence(m_perm.begin(), m_perm.end());
 		cudaDeviceSynchronize();
 	}
+	local_timer.Stop();
+	m_time_pre = local_timer.getElapsed();
 
 	IntVector tmp_reordering(m_n);
 	IntVector tmp_perm(m_n);
@@ -395,9 +402,15 @@ RCM_UM::execute_omp()
 
 	int S = 0;
 	int max_level = 0;
+	int p_max_level;
+
+	const double stop_ratio = 0.01;
+
+	m_time_bfs = m_time_node_order = 0.0;
 
 	for (int i = 0; i < ITER_COUNT; i++) {
-		
+		m_iteration_count = i + 1;
+		local_timer.Start();
 		if (i > 0) {
 			int max_count = thrust::count(levels.begin(), levels.end(), max_level);
 
@@ -424,6 +437,9 @@ RCM_UM::execute_omp()
 				S = tmp_reordering[m_n - 1];
 
 			while (tried[S]) S = (S + 1) % m_n;
+		} else {
+			S = thrust::min_element(ori_degrees.begin(), ori_degrees.end()) - ori_degrees.begin();
+			cudaDeviceSynchronize();
 		}
 
 		tried[S] = true;
@@ -498,7 +514,10 @@ RCM_UM::execute_omp()
 				}
 			}
 		}
+		local_timer.Stop();
+		m_time_bfs += local_timer.getElapsed();
 
+		local_timer.Start();
 		thrust::scatter(levels.begin(), levels.end(), tmp_reordering.begin(), ori_levels.begin());
 		cudaDeviceSynchronize();
 
@@ -575,6 +594,29 @@ RCM_UM::execute_omp()
 			m_half_bandwidth = tmp_half_bandwidth;
 			m_perm           = tmp_perm;
 		}
+
+		if (i > 0) {
+			if (m_half_bandwidth <= tmp_half_bandwidth && p_max_level >= max_level) {
+				local_timer.Stop();
+				m_time_node_order += local_timer.getElapsed();
+				break;
+			}
+			double hb_ratio = 1.0 * (m_half_bandwidth - tmp_half_bandwidth) / m_half_bandwidth;
+			if (hb_ratio < stop_ratio) {
+				double max_level_ratio = 1.0 * (max_level - p_max_level) / p_max_level;
+				if (max_level_ratio < stop_ratio) {
+					local_timer.Stop();
+					m_time_node_order += local_timer.getElapsed();
+					break;
+				}
+			}
+
+			if (p_max_level < max_level)
+				p_max_level = max_level;
+		} else
+			p_max_level = max_level;
+		local_timer.Stop();
+		m_time_node_order += local_timer.getElapsed();
 	}
 
 }
