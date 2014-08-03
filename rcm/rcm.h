@@ -45,11 +45,17 @@ class RCM_base
 protected:
 	int            m_half_bandwidth;
 	int            m_half_bandwidth_original;
+	int            m_max_iteration_count;
+	int            m_iteration_count;
+	double         m_time_pre;
+	double         m_time_bfs;
+	double         m_time_node_order;
 
 	size_t         m_n;
 	size_t         m_nnz;
 
 	typedef typename thrust::tuple<int, int, int, int>       IntTuple;
+	typedef typename thrust::tuple<int, int, int>            IntTriple;
 
 
 	template <typename IVector>
@@ -121,10 +127,10 @@ public:
 	{
 		inline
 			__host__ __device__
-			bool operator() (IntTuple a, IntTuple b) const
+			bool operator() (IntTriple a, IntTriple b) const
 			{ 
-				int a_level = thrust::get<0>(a), b_level = thrust::get<0>(b);
-				if (a_level != b_level) return a_level < b_level;
+				int a0 = thrust::get<0>(a), b0 = thrust::get<0>(b);
+				if (a0 != b0) return a0 < b0;
 				return thrust::get<1>(a) < thrust::get<1>(b);
 			}
 	};
@@ -144,6 +150,10 @@ public:
 
 	int getHalfBandwidth() const         {return m_half_bandwidth;}
 	int getHalfBandwidthOriginal() const {return m_half_bandwidth_original;}
+	int getIterationCount() const        {return m_iteration_count;}
+	double getTimePreprocessing() const  {return m_time_pre;}
+	double getTimeBFS() const            {return m_time_bfs;}
+	double getTimeNodeOrder() const      {return m_time_node_order;}
 
     virtual void execute() = 0;
 };
@@ -185,15 +195,18 @@ private:
 public:
   RCM(const IntVectorH&    row_offsets,
       const IntVectorH&    column_indices,
-      const DoubleVectorH& values)
+      const DoubleVectorH& values,
+	  int                  iteration_count)
   : m_row_offsets(row_offsets),
     m_column_indices(column_indices),
     m_values(values)
   {
     size_t n = row_offsets.size() - 1;
     m_perm.resize(n);
-    m_n   = n;
-    m_nnz = m_values.size();
+    m_n               = n;
+    m_nnz             = m_values.size();
+	m_max_iteration_count = iteration_count;
+	m_iteration_count = 0;
   }
 
   ~RCM() {}
@@ -221,7 +234,7 @@ RCM::execute()
 	EdgeIterator end   = thrust::make_zip_iterator(thrust::make_tuple(row_indices.end(),   m_column_indices.end()));
 	buildTopology(begin, end, 0, m_n, tmp_row_offsets, tmp_column_indices);
 
-	const int MAX_NUM_TRIAL = 5;
+	const int MAX_NUM_TRIAL = m_max_iteration_count;
 
 	BoolVectorH tried(m_n, false);
 	tried[0] = true;
@@ -234,8 +247,11 @@ RCM::execute()
 
 	thrust::transform(m_row_offsets.begin() + 1, m_row_offsets.end(), m_row_offsets.begin(), ori_degrees.begin(), thrust::minus<int>());
 
+	int S;
+
 	for (int trial_num = 0; trial_num < MAX_NUM_TRIAL ; trial_num++)
 	{
+		m_iteration_count = trial_num + 1;
 		std::queue<int> q;
 		std::priority_queue<NodeType, std::vector<NodeType>, CompareValue > pq;
 		int max_level = 0;
@@ -269,13 +285,18 @@ RCM::execute()
 				tmp_node = max_level_vertices[min_valence_pos];
 			} else
 				tmp_node = max_level_iter - levels.begin();
+
+			while(tried[tmp_node])
+				tmp_node = (tmp_node + 1) % m_n;
 		} else
 			tmp_node = 0;
 
-		pushed[tmp_node] = true;
-		tried[tmp_node] = true;
-		q.push(tmp_node);
-		levels[tmp_node] = 0;
+		S = tmp_node;
+
+		pushed[S] = true;
+		tried[S] = true;
+		q.push(S);
+		levels[S] = 0;
 
 		while(left_cnt--) {
 			if(q.empty()) {
