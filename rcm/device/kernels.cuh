@@ -41,7 +41,8 @@ __global__ void achieveLevels(int        cur_level,
 	}
 }
 
-__global__ void alterAchieveLevels(int        cur_level,
+__global__ void alterAchieveLevels(int        cur_iter,
+		                           int        cur_level,
 							       const int* row_offsets,
 								   const int* column_indices,
 								   int*       reordering,
@@ -63,9 +64,9 @@ __global__ void alterAchieveLevels(int        cur_level,
 	for (int tid = start_idx + threadIdx.x; tid < end_idx; tid += blockDim.x) {
 		int column = column_indices[tid];
 
-		int local_visited = atomicCAS(visited + column, 0, 1);
+		int local_visited = atomicCAS(visited + column, cur_iter - 1, cur_iter);
 
-		if (!local_visited) {
+		if (local_visited == cur_iter - 1) {
 			int old_queue_end = atomicAdd(p_queue_end, 1);
 			reordering[old_queue_end] = column;
 		}

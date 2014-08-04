@@ -345,7 +345,8 @@ void
 RCM_UM::execute_omp()
 {
 	IntVector        visited(m_n);
-	BoolVectorH      post_visited(m_n);
+	IntVectorH       post_visited(m_n);
+	IntVectorH       special(m_n);
 	BoolVector       tried(m_n, false);
 
 	IntVector        levels(m_n);
@@ -355,9 +356,7 @@ RCM_UM::execute_omp()
 	IntVector        row_indices(m_nnz);
 
 	IntVector        tmp_row_offsets(m_n + 1);
-	IntVector        tmp_row_indices(m_nnz << 1);
 	IntVector        tmp_column_indices(m_nnz << 1);
-	IntVector        degrees(m_n);
 	IntVector        ori_degrees(m_n);
 
 	IntVector        ori_levels(m_n);
@@ -370,6 +369,7 @@ RCM_UM::execute_omp()
 
 	{
 		IntVector        extended_degrees(m_nnz << 1);
+		IntVector        tmp_row_indices(m_nnz << 1);
 		thrust::transform(m_row_offsets.begin() + 1, m_row_offsets.end(), m_row_offsets.begin(), ori_degrees.begin(), thrust::minus<int>());
 
 		thrust::copy(thrust::make_zip_iterator(thrust::make_tuple(row_indices.begin(), m_column_indices.begin(), m_column_indices.begin(), row_indices.begin())), 
@@ -383,7 +383,6 @@ RCM_UM::execute_omp()
                      thrust::make_zip_iterator(thrust::make_tuple(tmp_row_indices.end(), extended_degrees.end(), tmp_column_indices.end())), TripleCompare()
 				);
 		indices_to_offsets(tmp_row_indices, tmp_row_offsets);
-		thrust::transform(tmp_row_offsets.begin() + 1, tmp_row_offsets.end(), tmp_row_offsets.begin(), degrees.begin(), thrust::minus<int>());
 
 		m_half_bandwidth = m_half_bandwidth_original = thrust::inner_product(row_indices.begin(), row_indices.end(), m_column_indices.begin(), 0, thrust::maximum<int>(), Difference());
 
@@ -395,6 +394,8 @@ RCM_UM::execute_omp()
 
 	IntVector tmp_reordering(m_n);
 	IntVector tmp_perm(m_n);
+
+	IntVector level_offsets;
 
 	int numBlockX = m_n, numBlockY = 1;
 	kernelConfigAdjust(numBlockX, numBlockY, MAX_GRID_DIMENSION);
@@ -408,11 +409,17 @@ RCM_UM::execute_omp()
 
 	m_time_bfs = m_time_node_order = 0.0;
 
+	thrust::fill(visited.begin(),  visited.end(), -1);
+	thrust::fill(post_visited.begin(),  post_visited.end(), -1);
+	thrust::fill(special.begin(),  special.end(), -1);
+
+
 	for (int i = 0; i < ITER_COUNT; i++) {
 		m_iteration_count = i + 1;
 		local_timer.Start();
 		if (i > 0) {
-			int max_count = thrust::count(levels.begin(), levels.end(), max_level);
+			int start_idx = level_offsets[max_level], end_idx = level_offsets[max_level + 1];
+			int max_count = end_idx - start_idx;
 
 			if( max_count > 1 ) {
 				IntVector max_level_vertices(max_count);
@@ -422,12 +429,13 @@ RCM_UM::execute_omp()
 						thrust::counting_iterator<int>(int(m_n)),
 						ori_levels.begin(),
 						max_level_vertices.begin(),
-						EqualTo(max_level));
+						EqualTo(max_level)); 
 
 				thrust::gather(thrust::counting_iterator<int>(0),
 						thrust::counting_iterator<int>(max_count),
 						ori_degrees.begin(),
 						max_level_valence.begin());
+
 				int min_valence_pos = thrust::min_element(max_level_valence.begin(), max_level_valence.end()) - max_level_valence.begin();
 				cudaDeviceSynchronize();
 
@@ -444,15 +452,7 @@ RCM_UM::execute_omp()
 
 		tried[S] = true;
 
-
-		thrust::fill(visited.begin(),  visited.end(),  0);
-		thrust::fill(post_visited.begin(),  post_visited.end(),  false);
-		//// thrust::sequence(tmp_reordering.begin(), tmp_reordering.end());
-
-		//// thrust::fill(levels.begin(), levels.end(), 0);
-		cudaDeviceSynchronize();
-
-		visited[S]  = 1;
+		visited[S]  = i;
 		tmp_reordering[0] = S;
 
 		int last = 0;
@@ -466,11 +466,9 @@ RCM_UM::execute_omp()
 		int queue_begin = 0;
 		IntVector queue_end(1, 1);
 		int *p_queue_end = thrust::raw_pointer_cast(&queue_end[0]);
-		const int *p_degrees   = thrust::raw_pointer_cast(&degrees[0]);
 		int *p_reordering= thrust::raw_pointer_cast(&tmp_reordering[0]);
 
-		BoolVectorH  special(m_n, false);
-		special[0] = true;
+		special[0] = i;
 
 		for (int l = 0; l < m_n; l ++) {
 			int local_queue_end = queue_end[0];
@@ -479,16 +477,16 @@ RCM_UM::execute_omp()
 				int blockX = local_queue_end - queue_begin, blockY = 1;
 				kernelConfigAdjust(blockX, blockY, MAX_GRID_DIMENSION);
 				dim3 tmp_grids(blockX, blockY);
-				device::alterAchieveLevels<<<tmp_grids, 64>>>(l, p_row_offsets, p_column_indices, p_reordering, queue_begin, local_queue_end, p_queue_end, p_visited, p_levels);
+				device::alterAchieveLevels<<<tmp_grids, 64>>>(i, l, p_row_offsets, p_column_indices, p_reordering, queue_begin, local_queue_end, p_queue_end, p_visited, p_levels);
 				cudaDeviceSynchronize();
 				queue_begin = local_queue_end;
 			} else {
 				if (local_queue_end == queue_begin) {
 					if (queue_begin >= m_n) break;
-					special[l] = true;
+					special[l] = i;
 					for (int j = last; j < m_n; j++)
-						if (!visited[j]) {
-							visited[j] = 1;
+						if (visited[j] != i) {
+							visited[j] = i;
 							tmp_reordering[local_queue_end] = j;
 							last = j;
 							tried[j] = true;
@@ -503,8 +501,8 @@ RCM_UM::execute_omp()
 						int start_idx = tmp_row_offsets[row], end_idx = tmp_row_offsets[row + 1];
 						for (int j = start_idx; j < end_idx; j++) {
 							int column = tmp_column_indices[j];
-							if (!visited[column]) {
-								visited[column] = true;
+							if (visited[column] != i) {
+								visited[column] = i;
 								tmp_reordering[queue_end[0]] = column;
 								queue_end[0] ++;
 							}
@@ -522,13 +520,11 @@ RCM_UM::execute_omp()
 		cudaDeviceSynchronize();
 
 		max_level = levels[levels.size() - 1];
-		IntVector level_offsets(max_level + 2);
+		level_offsets.resize(max_level + 2);
 		indices_to_offsets(levels, level_offsets);
 		cudaDeviceSynchronize();
 
 		IntVectorH h_tmp_reordering(tmp_reordering.begin(), tmp_reordering.end());
-		IntVectorH h_tmp_perm(m_n);
-		IntVectorH h_degrees(degrees.begin(), degrees.end());
 		IntVectorH h_ori_levels(ori_levels.begin(), ori_levels.end());
 		IntVectorH h_level_offsets(level_offsets.begin(), level_offsets.end());
 		IntVectorH h_write_offsets(level_offsets.begin(), level_offsets.end());
@@ -539,11 +535,11 @@ RCM_UM::execute_omp()
 		int threadId, numThreads;
 		int * volatile p_write_offsets = thrust::raw_pointer_cast(&h_write_offsets[0]);
 		for (int l = max_level; l >= 0; l--) {
-			if (special[l])
+			if (special[l] == i)
 				p_write_offsets[l]++;
 		}
 		cudaDeviceSynchronize();
-#pragma omp parallel private (threadId) shared(p_write_offsets, numThreads, h_level_offsets)
+#pragma omp parallel private (threadId) shared(p_write_offsets, numThreads, h_level_offsets, h_tmp_reordering, h_row_offsets, h_column_indices, post_visited)
 		{
 			threadId   = omp_get_thread_num();
 			numThreads = omp_get_num_threads();
@@ -564,8 +560,8 @@ RCM_UM::execute_omp()
 						for (int l2 = start_idx; l2 < end_idx; l2 ++) {
 							int column = h_column_indices[l2];
 							if (h_ori_levels[column] == l + 1) {
-								if (!post_visited[column]) {
-									post_visited[column] = true;
+								if (post_visited[column] != i) {
+									post_visited[column] = i;
 									int local_n_write_offset = p_write_offsets[l+1];
 									h_tmp_reordering[local_n_write_offset] = column;
 									p_write_offsets[l+1] = local_n_write_offset + 1;
@@ -579,12 +575,13 @@ RCM_UM::execute_omp()
 
 		int *p_tmp_perm = thrust::raw_pointer_cast(&tmp_perm[0]);
 
+		thrust::copy(h_tmp_reordering.begin(), h_tmp_reordering.end(), tmp_reordering.begin());
+
 		thrust::scatter(thrust::make_counting_iterator(0),
 				        thrust::make_counting_iterator(int(m_n)),
-						h_tmp_reordering.begin(), 
-						h_tmp_perm.begin());
+						tmp_reordering.begin(), 
+						tmp_perm.begin());
 
-		thrust::copy(h_tmp_perm.begin(), h_tmp_perm.end(), tmp_perm.begin());
 
 		int tmp_half_bandwidth = thrust::inner_product(row_indices.begin(), row_indices.end(), m_column_indices.begin(), 0, thrust::maximum<int>(), ExtendedDifference(p_tmp_perm));
 
