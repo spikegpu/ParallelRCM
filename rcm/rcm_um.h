@@ -389,17 +389,20 @@ RCM_UM::execute_omp()
 		thrust::sequence(m_perm.begin(), m_perm.end());
 		cudaDeviceSynchronize();
 	}
-	local_timer.Stop();
-	m_time_pre = local_timer.getElapsed();
 
 	IntVector tmp_reordering(m_n);
 	IntVector tmp_perm(m_n);
 
 	IntVector level_offsets;
 
-	int numBlockX = m_n, numBlockY = 1;
-	kernelConfigAdjust(numBlockX, numBlockY, MAX_GRID_DIMENSION);
-	dim3 grids(numBlockX, numBlockY);
+	IntVectorH h_row_offsets(tmp_row_offsets.begin(), tmp_row_offsets.end());
+	IntVectorH h_column_indices(tmp_column_indices.begin(), tmp_column_indices.end());
+
+	thrust::fill(visited.begin(),  visited.end(), -1);
+	thrust::fill(post_visited.begin(),  post_visited.end(), -1);
+	thrust::fill(special.begin(),  special.end(), -1);
+
+	cudaDeviceSynchronize();
 
 	int S = 0;
 	int max_level = 0;
@@ -409,37 +412,36 @@ RCM_UM::execute_omp()
 
 	m_time_bfs = m_time_node_order = 0.0;
 
-	thrust::fill(visited.begin(),  visited.end(), -1);
-	thrust::fill(post_visited.begin(),  post_visited.end(), -1);
-	thrust::fill(special.begin(),  special.end(), -1);
+	IntVectorH h_tmp_reordering(m_n);
 
+	if (m_nnz >= 5000000)
+		omp_set_num_threads(20);
+	else
+		omp_set_num_threads(10);
+
+	local_timer.Stop();
+	m_time_pre = local_timer.getElapsed();
 
 	for (int i = 0; i < ITER_COUNT; i++) {
 		m_iteration_count = i + 1;
 		local_timer.Start();
 		if (i > 0) {
-			int start_idx = level_offsets[max_level], end_idx = level_offsets[max_level + 1];
-			int max_count = end_idx - start_idx;
+			int start_idx = level_offsets[max_level];
+			int max_count = level_offsets[max_level + 1] - start_idx;
 
 			if( max_count > 1 ) {
-				IntVector max_level_vertices(max_count);
 				IntVector max_level_valence(max_count);
 
-				thrust::copy_if(thrust::counting_iterator<int>(0),
-						thrust::counting_iterator<int>(int(m_n)),
+				thrust::copy_if(ori_degrees.begin(),
+						ori_degrees.end(),
 						ori_levels.begin(),
-						max_level_vertices.begin(),
+						max_level_valence.begin(),
 						EqualTo(max_level)); 
-
-				thrust::gather(thrust::counting_iterator<int>(0),
-						thrust::counting_iterator<int>(max_count),
-						ori_degrees.begin(),
-						max_level_valence.begin());
 
 				int min_valence_pos = thrust::min_element(max_level_valence.begin(), max_level_valence.end()) - max_level_valence.begin();
 				cudaDeviceSynchronize();
 
-				S = max_level_vertices[min_valence_pos];
+				S = tmp_reordering[start_idx + min_valence_pos];
 			}
 			else
 				S = tmp_reordering[m_n - 1];
@@ -524,27 +526,29 @@ RCM_UM::execute_omp()
 		indices_to_offsets(levels, level_offsets);
 		cudaDeviceSynchronize();
 
-		IntVectorH h_tmp_reordering(tmp_reordering.begin(), tmp_reordering.end());
 		IntVectorH h_ori_levels(ori_levels.begin(), ori_levels.end());
 		IntVectorH h_level_offsets(level_offsets.begin(), level_offsets.end());
-		IntVectorH h_write_offsets(level_offsets.begin(), level_offsets.end());
 
-		IntVectorH h_row_offsets(tmp_row_offsets.begin(), tmp_row_offsets.end());
-		IntVectorH h_column_indices(tmp_column_indices.begin(), tmp_column_indices.end());
+
+		cudaDeviceSynchronize();
+		IntVectorH h_write_offsets = h_level_offsets;
 
 		int threadId, numThreads;
 		int * volatile p_write_offsets = thrust::raw_pointer_cast(&h_write_offsets[0]);
 		for (int l = max_level; l >= 0; l--) {
-			if (special[l] == i)
+			if (special[l] == i) {
 				p_write_offsets[l]++;
+				h_tmp_reordering[h_level_offsets[l]] = tmp_reordering[h_level_offsets[l]];
+			}
 		}
-		cudaDeviceSynchronize();
-#pragma omp parallel private (threadId) shared(p_write_offsets, numThreads, h_level_offsets, h_tmp_reordering, h_row_offsets, h_column_indices, post_visited)
+
+#pragma omp parallel if (m_nnz >= 500000) private (threadId) shared(p_write_offsets, numThreads, h_level_offsets, h_tmp_reordering, h_row_offsets, h_column_indices, post_visited)
 		{
+
 			threadId   = omp_get_thread_num();
 			numThreads = omp_get_num_threads();
 
-			for (int l = threadId; l <= max_level; l += numThreads) { // Parallelizable
+			for (int l = threadId; l < max_level; l += numThreads) { // Parallelizable
 				int local_read_offset = h_level_offsets[l], local_level_offset = h_level_offsets[l+1];
 				while (local_read_offset < local_level_offset) {
 					while(local_read_offset == p_write_offsets[l]) {

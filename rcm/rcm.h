@@ -248,6 +248,9 @@ RCM::execute()
 	thrust::transform(m_row_offsets.begin() + 1, m_row_offsets.end(), m_row_offsets.begin(), ori_degrees.begin(), thrust::minus<int>());
 
 	int S;
+	int p_max_level;
+
+	IntVectorH pushed(m_n, -1);
 
 	for (int trial_num = 0; trial_num < MAX_NUM_TRIAL ; trial_num++)
 	{
@@ -257,7 +260,6 @@ RCM::execute()
 		int max_level = 0;
 
 		int tmp_node;
-		BoolVectorH pushed(m_n, false);
 
 		int left_cnt = m_n;
 		int j = 0, last = 0;
@@ -289,11 +291,11 @@ RCM::execute()
 			while(tried[tmp_node])
 				tmp_node = (tmp_node + 1) % m_n;
 		} else
-			tmp_node = 0;
+			tmp_node = thrust::min_element(ori_degrees.begin(), ori_degrees.end()) - ori_degrees.begin();
 
 		S = tmp_node;
 
-		pushed[S] = true;
+		pushed[S] = trial_num;
 		tried[S] = true;
 		q.push(S);
 		levels[S] = 0;
@@ -304,9 +306,9 @@ RCM::execute()
 				int i;
 
 				for(i = last; i < m_n; i++) {
-					if(!pushed[i]) {
+					if(pushed[i] != trial_num) {
 						q.push(i);
-						pushed[i] = true;
+						pushed[i] = trial_num;
 						last = i;
 						levels[i] = (++max_level);
 						break;
@@ -327,8 +329,8 @@ RCM::execute()
 
 			for (int i = start_idx; i < end_idx; i++)  {
 				int target_node = tmp_column_indices[i];
-				if(!pushed[target_node]) {
-					pushed[target_node] = true;
+				if(pushed[target_node] != trial_num) {
+					pushed[target_node] = trial_num;
 					pq.push(thrust::make_tuple(target_node, tmp_row_offsets[target_node + 1] - tmp_row_offsets[target_node]));
 					max_level = levels[target_node] = levels[tmp_node] + 1;
 				}
@@ -354,6 +356,21 @@ RCM::execute()
 				m_perm           = tmp_perm;
 			}
 		}
+
+		if (trial_num > 0) {
+			if (p_max_level >= max_level)
+				break;
+
+			const double stop_ratio = 0.01;
+			double max_level_ratio = 1.0 * (max_level - p_max_level) / p_max_level;
+
+			if (max_level_ratio < stop_ratio)
+				break;
+
+			if (p_max_level < max_level)
+				p_max_level = max_level;
+		} else
+			p_max_level = max_level;
 	}
 }
 
