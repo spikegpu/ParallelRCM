@@ -115,7 +115,7 @@ int main(int argc, char **argv)
   rcm::CPUTimer cpu_timer;
   try {
 	  cpu_timer.Start();
-	  algo.execute_omp();
+	  algo.execute();
 	  cpu_timer.Stop();
   } catch (const rcm::system_error& se) {
 	  outputItem("");
