@@ -84,6 +84,16 @@ protected:
 				offsets.begin());
 	}
 
+	template <typename IVectorIterator>
+	static void indices_to_offsets(IVectorIterator begin, IVectorIterator end, IVectorIterator output, int start_value, int end_value) 
+	{
+		thrust::lower_bound(begin,
+				end,
+				thrust::counting_iterator<int>(start_value),
+				thrust::counting_iterator<int>(end_value + 1),
+				output);
+	}
+
 public:
 
 	virtual ~RCM_base() {}

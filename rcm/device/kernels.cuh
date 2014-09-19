@@ -64,9 +64,9 @@ __global__ void alterAchieveLevels(int        cur_iter,
 	for (int tid = start_idx + threadIdx.x; tid < end_idx; tid += blockDim.x) {
 		int column = column_indices[tid];
 
-		int local_visited = atomicCAS(visited + column, cur_iter - 1, cur_iter);
+		int local_visited = atomicExch(visited + column, cur_iter);
 
-		if (local_visited == cur_iter - 1) {
+		if (local_visited < cur_iter) {
 			int old_queue_end = atomicAdd(p_queue_end, 1);
 			reordering[old_queue_end] = column;
 		}
